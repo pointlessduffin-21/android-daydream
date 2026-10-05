@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.1] - 2026-10-05
+
+### Added
+- Standalone Windows x64 executable, distributed as `releases/Daydream.exe` and as a GitHub release asset. Python is bundled and does not need to be installed.
+- Native Windows settings window with Photos, Clock & Weather, and Immich tabs, accessible with S or the Settings button. Save & Apply updates the display immediately.
+- Rebuild script copies the executable into `releases/` and generates a SHA-256 checksum.
+
+### Verification
+- All 26 Windows core and settings tests passed. The packaged executable passed an eight-second headless startup check.
+
 ## [1.1.0] - 2026-10-05
 
 ### Added

@@ -8,7 +8,7 @@ covering layout rules, motion bounds, configuration, and Immich HTTP behavior.
 
 ## Run the executable
 
-Double-click `dist/Daydream.exe`. This is a standalone Windows x64 executable;
+Double-click `../releases/Daydream.exe`. This is a standalone Windows x64 executable;
 Python does not need to be installed on the destination computer.
 
 The app starts fullscreen. Press **S** or click **Settings (S)** in the top-right
@@ -50,7 +50,8 @@ Use Windows x64 with Python 3.11 or newer:
 `requirements-build.txt` records the build dependency versions. `Daydream.spec`
 packages the Python runtime, Pygame's SDL libraries and default font, Pillow,
 Tkinter's settings window, and the app into one executable without a console window. The build output is
-`dist/Daydream.exe`. The executable is unsigned.
+`dist/Daydream.exe`, also copied to `../releases/Daydream.exe` with a
+`Daydream.exe.sha256` checksum file. The executable is unsigned.
 
 ## Analysis and verification
 

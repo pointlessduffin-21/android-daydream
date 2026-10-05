@@ -76,7 +76,7 @@ Differences from Android:
 
 Tests: `cd windows && python -m unittest test_core test_settings`.
 
-To build a standalone Windows x64 executable (no Python required on the destination computer), run `windows/build.ps1` from PowerShell with Python 3.11 or newer installed. The output is `windows/dist/Daydream.exe`. See [Windows instructions](windows/README.md) for build details.
+To build a standalone Windows x64 executable (no Python required on the destination computer), run `windows/build.ps1` from PowerShell with Python 3.11 or newer installed. The output is `releases/Daydream.exe`, with a SHA-256 checksum alongside it; the original build output is also kept at `windows/dist/Daydream.exe`. See [Windows instructions](windows/README.md) for build details.
 
 ## Immich setup
 
