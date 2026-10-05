@@ -135,14 +135,19 @@ class ImmichHttpTest(unittest.TestCase):
                 pass
 
             def _reply(self):
+                # Drain POST bodies before closing the connection, including error replies.
+                # Windows can otherwise reset the socket before the client reads the status.
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 cls.seen.append((self.path, self.headers.get("x-api-key")))
                 if self.path.endswith("/redirect/api/server/version"):
                     self.send_response(302)
                     self.send_header("Location", "http://evil.example/steal")
+                    self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
                 if self.headers.get("x-api-key") != "good":
                     self.send_response(401)
+                    self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
                 body = b"x" * 2048 if "big" in self.path else json.dumps(
