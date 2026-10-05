@@ -85,9 +85,10 @@ class Feed(threading.Thread):
     """Background worker: fetches photos, plans slides, decodes and pre-scales them.
     Holds one finished slide in [ready], so the next slide is prepared while one is on screen."""
 
-    def __init__(self, cfg: dict, size: tuple[int, int]):
+    def __init__(self, cfg: dict, size: tuple[int, int], stop: threading.Event | None = None):
         super().__init__(daemon=True)
         self.cfg, self.size = cfg, size
+        self.stop = stop or threading.Event()
         self.ready: queue.Queue = queue.Queue(maxsize=1)
         self.status = "Loading photos…"
         self.queue: list[core.Item] = []
@@ -142,7 +143,7 @@ class Feed(threading.Thread):
 
     def _fill(self) -> None:
         failures = 0
-        while len(self.queue) <= core.LOOKAHEAD:
+        while len(self.queue) <= core.LOOKAHEAD and not self.stop.is_set():
             if not self.pending:
                 if self.queue:
                     return
@@ -159,24 +160,30 @@ class Feed(threading.Thread):
     # -- slides
     def run(self) -> None:
         collages = self.cfg["layout"] != "single"
-        while True:
+        while not self.stop.is_set():
             w, h = self.size  # re-read each slide: F11 changes it
             try:
                 self._fill()
                 layout, items = core.next_slide(self.queue, self.last_ids, w / h, collages, random.randrange(1000))
             except Exception as e:  # network down, bad config, unreadable folder…
                 self.status = str(e) or e.__class__.__name__
-                time.sleep(RETRY_SECONDS)
+                self.stop.wait(RETRY_SECONDS)
                 continue
             try:
                 tiles = [self._prepare(it, r, layout) for it, r in zip(items, layout_rects(layout, w, h))]
             except Exception as e:  # read fine but won't decode: its items are already dropped, plan again
                 self.status = f"Skipping a photo that won't decode ({e.__class__.__name__})"
-                time.sleep(1)
+                self.stop.wait(1)
                 continue
             self.last_ids = {it.id for it in items}
             self.status = ""
-            self.ready.put({"layout": layout, "tiles": tiles, "caption": items[0].caption})
+            slide = {"layout": layout, "tiles": tiles, "caption": items[0].caption}
+            while not self.stop.is_set():
+                try:
+                    self.ready.put(slide, timeout=0.2)
+                    break
+                except queue.Full:
+                    pass
 
     def _prepare(self, item: core.Item, rect, layout: str) -> dict:
         x, y, w, h = rect
@@ -305,6 +312,8 @@ def fmt_time(now: dt.datetime, h24: bool) -> tuple[str, str]:
 class App:
     def __init__(self, cfg: dict, cfg_error: str | None, windowed: bool):
         self.cfg, self.cfg_error = cfg, cfg_error
+        self.stop = threading.Event()
+        self.settings_requested = False
         pygame.init()
         sizes = pygame.display.get_desktop_sizes()
         self.display = cfg["display"] if isinstance(cfg["display"], int) and 0 <= cfg["display"] < len(sizes) else 0
@@ -318,7 +327,7 @@ class App:
         self.slide_at = 0.0
         self.weather: dict | str = "Set weather.city in the config" if not cfg["weather"]["city"] else "Loading…"
         self.last_input, self.drag_x = time.monotonic(), None
-        self.feed = Feed(cfg, self.screen.get_size()) if cfg["photo_source"] != "none" else None
+        self.feed = Feed(cfg, self.screen.get_size(), self.stop) if cfg["photo_source"] != "none" else None
         if self.feed:
             self.feed.start()
         if cfg["weather"]["city"]:
@@ -334,18 +343,18 @@ class App:
 
     def _weather_loop(self):
         place = None
-        while True:
+        while not self.stop.is_set():
             try:
                 place = place or core.geocode(self.cfg["weather"]["city"])
                 if not place:
                     self.weather = "City not found"
                     return
                 self.weather = {"name": place[0], **core.forecast(place[1], place[2], self.cfg["weather"]["fahrenheit"])}
-                time.sleep(30 * 60)
+                self.stop.wait(30 * 60)
             except Exception as e:
                 if not isinstance(self.weather, dict):
                     self.weather = f"Weather unavailable ({e.__class__.__name__})"
-                time.sleep(5 * 60)
+                self.stop.wait(5 * 60)
 
     @property
     def night(self) -> bool:
@@ -360,9 +369,16 @@ class App:
             for e in pygame.event.get():
                 if not self._handle(e):
                     return
+            if self.settings_requested:
+                return "settings"
             self._advance()
             self.screen.fill(BLACK)
             getattr(self, "draw_" + PAGES[self.page])()
+            if time.monotonic() - self.last_input < CURSOR_HIDE_AFTER or not self.slide and self.page == 1:
+                button = self.settings_rect()
+                pygame.draw.rect(self.screen, CARD, button, border_radius=8)
+                label = self.fonts.text('Settings (S)', 20, WHITE, bold=False)
+                self.screen.blit(label, label.get_rect(center=button.center))
             if self.cfg_error:
                 blit_shadowed(self.screen, self.fonts, self.cfg_error, 22, (24, self.screen.get_height() - 44), RED)
             if self.night:
@@ -380,6 +396,9 @@ class App:
         if e.type == pygame.KEYDOWN:
             if e.key in (pygame.K_ESCAPE, pygame.K_q):
                 return False
+            if e.key == pygame.K_s:
+                self.settings_requested = True
+                return True
             if e.key in (pygame.K_LEFT, pygame.K_RIGHT):
                 self.page = max(0, min(len(PAGES) - 1, self.page + (1 if e.key == pygame.K_RIGHT else -1)))
             elif e.key in (pygame.K_UP, pygame.K_DOWN):
@@ -397,12 +416,18 @@ class App:
                 if self.feed:
                     self.feed.size = self.screen.get_size()
         elif e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
+            if self.settings_rect().collidepoint(e.pos):
+                self.settings_requested = True
+                return True
             self.drag_x = e.pos[0]
         elif e.type == pygame.MOUSEBUTTONUP and e.button == 1 and self.drag_x is not None:
             dx, self.drag_x = e.pos[0] - self.drag_x, None
             if abs(dx) > 80:
                 self.page = max(0, min(len(PAGES) - 1, self.page + (-1 if dx > 0 else 1)))
         return True
+
+    def settings_rect(self) -> pygame.Rect:
+        return pygame.Rect(self.screen.get_width() - 164, 16, 148, 42)
 
     def _advance(self):
         """Swap to the feed's prepared slide once the interval has passed."""
@@ -553,7 +578,26 @@ def main(argv: list[str]) -> None:
     core.harden_pillow()
     win32_setup()
     try:
-        App(cfg, error, windowed="--windowed" in argv).run()
+        windowed = "--windowed" in argv
+        page, face, stack = 1, 0, 0
+        while True:
+            app = App(cfg, error, windowed=windowed)
+            app.page, app.face, app.stack = page, face, stack
+            try:
+                action = app.run()
+            finally:
+                app.stop.set()
+            if action != "settings":
+                break
+            windowed = app.windowed
+            page, face, stack = app.page, app.face, app.stack
+            if not windowed:
+                app.windowed = True
+                app._set_mode()
+            pygame.mouse.set_visible(True)
+            import settings_ui
+            settings_ui.show_settings(cfg, path, error, len(pygame.display.get_desktop_sizes()))
+            cfg, error = core.load_config(path)
     finally:
         if sys.platform == "win32":
             ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)  # let the display sleep again

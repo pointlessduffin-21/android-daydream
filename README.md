@@ -44,7 +44,9 @@ pip install -r requirements.txt
 python daydream.py              REM or pythonw daydream.py (no console window)
 ```
 
-The first run creates `%APPDATA%\Daydream\config.json`. Edit it and restart; see `windows/config.example.json` for the settings:
+Press `S` or click **Settings (S)** in the top-right corner (move the mouse to reveal it). The settings window includes Photos, Clock & Weather, and Immich tabs. **Save & Apply** updates the display immediately; **Cancel** leaves the configuration unchanged.
+
+The first run creates `%APPDATA%\Daydream\config.json`. You can also edit it and restart; see `windows/config.example.json` for the settings:
 - `photo_source`: `local`, `immich` or `none`;
 - `folders`;
 - `immich`: `url`, `api_key`, and `mode` (`random`, `favorites` or `albums`; for `albums`, list the album ids in `albums`);
@@ -61,18 +63,20 @@ The first run creates `%APPDATA%\Daydream\config.json`. Edit it and restart; see
 - ↑ / ↓: change the clock face or widget stack;
 - `N`: cycle night mode (auto, on, off);
 - `F11`: toggle windowed mode;
+- `S`: open settings;
 - `Esc` / `Q`: quit.
 
 `--config PATH` and `--windowed` are also available.
 
 Differences from Android:
-- there's no in-app settings screen (you edit the JSON);
 - night mode follows the clock rather than a light sensor;
 - there's no next-alarm widget, since Windows has no alarm API;
 - the battery widget only appears on laptops;
 - HEIC photos aren't supported.
 
-Tests: `cd windows && python -m unittest test_core`.
+Tests: `cd windows && python -m unittest test_core test_settings`.
+
+To build a standalone Windows x64 executable (no Python required on the destination computer), run `windows/build.ps1` from PowerShell with Python 3.11 or newer installed. The output is `windows/dist/Daydream.exe`. See [Windows instructions](windows/README.md) for build details.
 
 ## Immich setup
 

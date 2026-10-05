@@ -7,3 +7,6 @@ local.properties
 captures/
 __pycache__/
 *.pyc
+windows/.venv/
+windows/.build-tools/
+windows/dist/
