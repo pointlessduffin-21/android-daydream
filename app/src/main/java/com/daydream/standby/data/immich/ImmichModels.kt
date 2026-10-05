@@ -1,6 +1,9 @@
 package com.daydream.standby.data.immich
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @Serializable
 data class ImmichServerVersion(val major: Int, val minor: Int, val patch: Int) : Comparable<ImmichServerVersion> {
@@ -50,7 +53,26 @@ data class ImmichExif(
     val state: String? = null,
     val country: String? = null,
     val dateTimeOriginal: String? = null,
-)
+    // Parsed leniently (servers/proxies may send 4032.0, huge values, or numbers vs strings): a
+    // malformed hint must never fail decoding of the whole asset list.
+    @SerialName("exifImageWidth") private val rawWidth: JsonPrimitive? = null,
+    @SerialName("exifImageHeight") private val rawHeight: JsonPrimitive? = null,
+    @SerialName("orientation") private val rawOrientation: JsonPrimitive? = null,
+) {
+    val exifImageWidth: Int? get() = rawWidth.dimension()
+    val exifImageHeight: Int? get() = rawHeight.dimension()
+
+    /** True for EXIF orientations 5–8, where the stored image is rotated 90°. */
+    val isRotated90: Boolean
+        get() = rawOrientation?.contentOrNull?.trim()?.toDoubleOrNull()?.toInt() in 5..8
+
+    private fun JsonPrimitive?.dimension(): Int? =
+        this?.contentOrNull?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 1.0 && it <= MAX_DIMENSION }?.toInt()
+
+    private companion object {
+        const val MAX_DIMENSION = 1_000_000.0
+    }
+}
 
 @Serializable
 internal data class RandomSearchRequest(

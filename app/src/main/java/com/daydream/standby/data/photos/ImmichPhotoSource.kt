@@ -62,6 +62,9 @@ class ImmichPhotoSource(
             listOfNotNull(exif.city, exif.country ?: exif.state).filter { it.isNotBlank() }.joinToString(", ").ifEmpty { null }
         },
         takenOn = parseDate(asset.exifInfo?.dateTimeOriginal) ?: parseDate(asset.localDateTime) ?: parseDate(asset.fileCreatedAt),
+        aspectHint = asset.exifInfo?.let { exif ->
+            displayAspect(exif.exifImageWidth, exif.exifImageHeight, rotated90 = exif.isRotated90)
+        },
     )
 
     companion object {

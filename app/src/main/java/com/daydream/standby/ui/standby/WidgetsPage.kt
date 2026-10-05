@@ -14,6 +14,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,10 +26,12 @@ import com.daydream.standby.ui.standby.widgets.BatteryWidget
 import com.daydream.standby.ui.standby.widgets.CalendarWidget
 import com.daydream.standby.ui.standby.widgets.WeatherWidget
 import com.daydream.standby.ui.theme.StandByColors
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 /** Two independently swipeable widget stacks, side by side (stacked in portrait). */
 @Composable
-fun WidgetsPage(weather: WeatherState, use24Hour: Boolean, showSeconds: Boolean) {
+fun WidgetsPage(weather: WeatherState, use24Hour: Boolean, showSeconds: Boolean, verticalNudges: Flow<Int>) {
     val left: List<@Composable () -> Unit> = listOf(
         { AnalogClockWidget(showSeconds) },
         { BatteryWidget() },
@@ -41,21 +44,22 @@ fun WidgetsPage(weather: WeatherState, use24Hour: Boolean, showSeconds: Boolean)
     BoxWithConstraints(Modifier.fillMaxSize().padding(20.dp)) {
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                WidgetStack(left, Modifier.weight(1f))
-                WidgetStack(right, Modifier.weight(1f))
+                WidgetStack(left, verticalNudges, Modifier.weight(1f))
+                WidgetStack(right, verticalNudges, Modifier.weight(1f))
             }
         } else {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                WidgetStack(left, Modifier.weight(1f))
-                WidgetStack(right, Modifier.weight(1f))
+                WidgetStack(left, verticalNudges, Modifier.weight(1f))
+                WidgetStack(right, verticalNudges, Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun WidgetStack(widgets: List<@Composable () -> Unit>, modifier: Modifier) {
+private fun WidgetStack(widgets: List<@Composable () -> Unit>, verticalNudges: Flow<Int>, modifier: Modifier) {
     val pager = rememberPagerState { widgets.size }
+    LaunchedEffect(pager, verticalNudges) { verticalNudges.collect { launch { pager.animateScrollToPage((pager.targetPage + it).coerceIn(0, widgets.size - 1)) } } }
     Box(modifier.fillMaxSize().clip(RoundedCornerShape(36.dp)).background(StandByColors.Card)) {
         VerticalPager(state = pager, modifier = Modifier.fillMaxSize()) { page -> widgets[page]() }
         if (widgets.size > 1) {

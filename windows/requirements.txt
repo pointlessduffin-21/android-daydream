@@ -1,0 +1,2 @@
+pygame-ce>=2.5
+Pillow>=11  # 10.x had libwebp/heap CVEs (CVE-2023-4863, CVE-2024-28219)

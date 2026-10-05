@@ -51,7 +51,7 @@ class ImmichPhotoSourceTest {
         respond(
             mapOf(
                 "/api/search/random" to (200 to """[
-                    {"id":"1","type":"IMAGE","exifInfo":{"city":"Manila","country":"Philippines","dateTimeOriginal":"2023-04-05T10:00:00.000Z"}},
+                    {"id":"1","type":"IMAGE","exifInfo":{"city":"Manila","country":"Philippines","dateTimeOriginal":"2023-04-05T10:00:00.000Z","exifImageWidth":4000,"exifImageHeight":3000,"orientation":"6"}},
                     {"id":"1","type":"IMAGE"},
                     {"id":"2","type":"VIDEO"},
                     {"id":"3","type":"IMAGE","isTrashed":true},
@@ -68,8 +68,27 @@ class ImmichPhotoSourceTest {
         assertEquals(LocalDate.of(2023, 4, 5), first.takenOn)
         assertEquals(server.previewUrl("1").toString(), first.data)
         assertEquals(mapOf("x-api-key" to "k"), first.headers)
+        assertEquals(0.75f, first.aspectHint!!, 1e-6f) // 4000x3000 rotated 90° → portrait
+        assertNull(photos[1].aspectHint)
         assertNull(photos[1].location)
         assertEquals(LocalDate.of(2020, 1, 2), photos[1].takenOn)
+    }
+
+    @Test fun `malformed exif hints never break the batch`() = runTest {
+        respond(
+            mapOf(
+                "/api/search/random" to (200 to """[
+                    {"id":"f","type":"IMAGE","exifInfo":{"exifImageWidth":4032.0,"exifImageHeight":3024,"orientation":8}},
+                    {"id":"g","type":"IMAGE","exifInfo":{"exifImageWidth":99999999999,"exifImageHeight":"abc","orientation":null}},
+                    {"id":"h","type":"IMAGE","exifInfo":{"exifImageWidth":-5,"exifImageHeight":0}}
+                ]"""),
+            ),
+        )
+        val photos = source(ImmichMode.RANDOM).loadBatch()
+        assertEquals(listOf("immich:f", "immich:g", "immich:h"), photos.map { it.id })
+        assertEquals(0.75f, photos[0].aspectHint!!, 1e-6f)
+        assertNull(photos[1].aspectHint)
+        assertNull(photos[2].aspectHint)
     }
 
     @Test fun `favorites mode requests favorites`() = runTest {

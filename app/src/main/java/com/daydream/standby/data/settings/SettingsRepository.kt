@@ -32,10 +32,13 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         val IMMICH_KEY = stringPreferencesKey("immich_api_key")
         val IMMICH_MODE = stringPreferencesKey("immich_mode")
         val IMMICH_ALBUMS = stringSetPreferencesKey("immich_albums")
+        val LOCAL_BUCKETS = stringSetPreferencesKey("local_buckets")
         val INTERVAL = intPreferencesKey("slide_interval")
         val CLOCK_FORMAT = stringPreferencesKey("clock_format")
         val SHOW_SECONDS = booleanPreferencesKey("show_seconds")
         val PHOTO_CLOCK = booleanPreferencesKey("photo_clock_overlay")
+        val PHOTO_LAYOUT = stringPreferencesKey("photo_layout")
+        val KEN_BURNS = booleanPreferencesKey("ken_burns")
         val NIGHT_MODE = stringPreferencesKey("night_mode")
         val SHOW_WHEN_LOCKED = booleanPreferencesKey("show_when_locked")
         val WEATHER_NAME = stringPreferencesKey("weather_name")
@@ -57,11 +60,14 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
             immichApiKey = p[Keys.IMMICH_KEY] ?: defaults.immichApiKey,
             immichMode = enumOrDefault(p[Keys.IMMICH_MODE], defaults.immichMode),
             immichAlbumIds = p[Keys.IMMICH_ALBUMS] ?: defaults.immichAlbumIds,
+            localBucketIds = p[Keys.LOCAL_BUCKETS] ?: defaults.localBucketIds,
             slideIntervalSeconds = (p[Keys.INTERVAL] ?: defaults.slideIntervalSeconds)
                 .coerceIn(AppSettings.MIN_INTERVAL_SECONDS, AppSettings.MAX_INTERVAL_SECONDS),
             clockFormat = enumOrDefault(p[Keys.CLOCK_FORMAT], defaults.clockFormat),
             showSeconds = p[Keys.SHOW_SECONDS] ?: defaults.showSeconds,
             photoClockOverlay = p[Keys.PHOTO_CLOCK] ?: defaults.photoClockOverlay,
+            photoLayout = enumOrDefault(p[Keys.PHOTO_LAYOUT], defaults.photoLayout),
+            kenBurns = p[Keys.KEN_BURNS] ?: defaults.kenBurns,
             nightMode = enumOrDefault(p[Keys.NIGHT_MODE], defaults.nightMode),
             showWhenLocked = p[Keys.SHOW_WHEN_LOCKED] ?: defaults.showWhenLocked,
             weatherLocation = if (name != null && lat != null && lon != null) WeatherLocation(name, lat, lon) else null,
@@ -77,10 +83,13 @@ class SettingsRepository(private val store: DataStore<Preferences>) {
         p[Keys.IMMICH_KEY] = s.immichApiKey
         p[Keys.IMMICH_MODE] = s.immichMode.name
         p[Keys.IMMICH_ALBUMS] = s.immichAlbumIds
+        p[Keys.LOCAL_BUCKETS] = s.localBucketIds
         p[Keys.INTERVAL] = s.slideIntervalSeconds
         p[Keys.CLOCK_FORMAT] = s.clockFormat.name
         p[Keys.SHOW_SECONDS] = s.showSeconds
         p[Keys.PHOTO_CLOCK] = s.photoClockOverlay
+        p[Keys.PHOTO_LAYOUT] = s.photoLayout.name
+        p[Keys.KEN_BURNS] = s.kenBurns
         p[Keys.NIGHT_MODE] = s.nightMode.name
         p[Keys.SHOW_WHEN_LOCKED] = s.showWhenLocked
         val loc = s.weatherLocation

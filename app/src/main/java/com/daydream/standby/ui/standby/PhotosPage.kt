@@ -1,12 +1,11 @@
 package com.daydream.standby.ui.standby
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,22 +23,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 import com.daydream.standby.data.photos.Photo
 import com.daydream.standby.data.photos.SlideshowState
 import com.daydream.standby.ui.common.formatTime
 import com.daydream.standby.ui.common.localizedPattern
 import com.daydream.standby.ui.common.rememberNow
-import com.daydream.standby.ui.common.toImageRequest
+import com.daydream.standby.ui.standby.photos.SlideView
 import com.daydream.standby.ui.theme.StandByColors
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -53,12 +48,17 @@ fun PhotosPage(
     intervalSeconds: Int,
     showClock: Boolean,
     use24Hour: Boolean,
+    kenBurns: Boolean,
+    onViewportChanged: (Float) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val aspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else 0f
+        LaunchedEffect(aspect) { onViewportChanged(aspect) }
+
         when (state) {
-            is SlideshowState.Showing -> Crossfade(targetState = state.photo, animationSpec = tween(CROSSFADE_MILLIS), label = "photo") { photo ->
-                KenBurnsPhoto(photo, durationMillis = intervalSeconds * 1_000 + CROSSFADE_MILLIS)
+            is SlideshowState.Showing -> Crossfade(targetState = state.slide, animationSpec = tween(CROSSFADE_MILLIS), label = "slide") { slide ->
+                SlideView(slide, motionMillis = intervalSeconds * 1_000 + CROSSFADE_MILLIS * 2, kenBurns = kenBurns)
             }
             SlideshowState.Loading -> Unit
             SlideshowState.NotConfigured -> Placeholder("Add your photos", "Connect Immich or use photos on this device.", onOpenSettings)
@@ -68,25 +68,8 @@ fun PhotosPage(
         }
 
         if (showClock) ClockOverlay(use24Hour, Modifier.align(Alignment.TopStart))
-        (state as? SlideshowState.Showing)?.photo?.let { PhotoCaption(it, Modifier.align(Alignment.BottomStart)) }
+        (state as? SlideshowState.Showing)?.slide?.primary?.let { PhotoCaption(it, Modifier.align(Alignment.BottomStart)) }
     }
-}
-
-@Composable
-private fun KenBurnsPhoto(photo: Photo, durationMillis: Int) {
-    val context = LocalContext.current
-    val request = remember(photo.id) { photo.toImageRequest(context) }
-    val scale = remember(photo.id) { Animatable(1f) }
-    LaunchedEffect(photo.id) { scale.animateTo(KEN_BURNS_SCALE, tween(durationMillis, easing = LinearEasing)) }
-    AsyncImage(
-        model = request,
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = Modifier.fillMaxSize().graphicsLayer {
-            scaleX = scale.value
-            scaleY = scale.value
-        },
-    )
 }
 
 @Composable
@@ -155,4 +138,3 @@ private fun Placeholder(title: String, message: String, onOpenSettings: () -> Un
 }
 
 private const val CROSSFADE_MILLIS = 1_200
-private const val KEN_BURNS_SCALE = 1.08f

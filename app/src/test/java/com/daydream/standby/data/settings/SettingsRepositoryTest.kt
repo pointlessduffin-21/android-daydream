@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -30,10 +31,13 @@ class SettingsRepositoryTest {
             immichApiKey = "k",
             immichMode = ImmichMode.ALBUMS,
             immichAlbumIds = setOf("a", "b"),
+            localBucketIds = setOf("123", "-456"),
             slideIntervalSeconds = 42,
             clockFormat = ClockFormat.H24,
             showSeconds = true,
             photoClockOverlay = false,
+            photoLayout = PhotoLayout.SINGLE,
+            kenBurns = false,
             nightMode = NightModeSetting.ON,
             showWhenLocked = true,
             weatherLocation = WeatherLocation("Manila", 14.6, 120.9),
@@ -72,5 +76,7 @@ class SettingsRepositoryTest {
         val s = AppSettings(photoSource = PhotoSourceType.LOCAL, slideIntervalSeconds = 9)
         assertEquals(s.photoConfig, s.copy(showSeconds = true, lastPage = 0).photoConfig)
         assertEquals(9, s.photoConfig.intervalSeconds)
+        assertEquals(setOf("1", "2"), s.copy(localBucketIds = setOf("1", "2")).photoConfig.localBucketIds)
+        assertNotEquals(s.photoConfig, s.copy(localBucketIds = setOf("1")).photoConfig)
     }
 }

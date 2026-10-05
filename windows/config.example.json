@@ -1,0 +1,25 @@
+{
+  "photo_source": "local",
+  "folders": [
+    "~/Pictures",
+    "D:/Photos"
+  ],
+  "immich": {
+    "url": "",
+    "api_key": "",
+    "mode": "random",
+    "albums": [],
+    "allow_insecure_http": false
+  },
+  "interval_seconds": 15,
+  "layout": "collages",
+  "ken_burns": true,
+  "clock_24h": false,
+  "show_seconds": false,
+  "night_mode": "auto",
+  "weather": {
+    "city": "Manila",
+    "fahrenheit": false
+  },
+  "display": 0
+}

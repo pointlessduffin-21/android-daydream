@@ -28,16 +28,19 @@ import com.daydream.standby.ui.common.localizedPattern
 import com.daydream.standby.ui.common.rememberNow
 import com.daydream.standby.ui.standby.widgets.AnalogClock
 import com.daydream.standby.ui.theme.StandByColors
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.launch
 
 const val CLOCK_FACE_COUNT = 3
 
 /** Full-screen clock faces; swipe vertically to change style (like StandBy). */
 @Composable
-fun ClockPage(initialFace: Int, onFaceChanged: (Int) -> Unit, use24Hour: Boolean, showSeconds: Boolean) {
+fun ClockPage(initialFace: Int, onFaceChanged: (Int) -> Unit, use24Hour: Boolean, showSeconds: Boolean, verticalNudges: Flow<Int>) {
     val pager = rememberPagerState(initialPage = initialFace.coerceIn(0, CLOCK_FACE_COUNT - 1)) { CLOCK_FACE_COUNT }
     LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.drop(1).collect(onFaceChanged) }
+    LaunchedEffect(pager, verticalNudges) { verticalNudges.collect { launch { pager.animateScrollToPage((pager.targetPage + it).coerceIn(0, CLOCK_FACE_COUNT - 1)) } } }
     VerticalPager(state = pager, modifier = Modifier.fillMaxSize()) { face ->
         when (face) {
             0 -> DigitalFace(use24Hour, showSeconds)

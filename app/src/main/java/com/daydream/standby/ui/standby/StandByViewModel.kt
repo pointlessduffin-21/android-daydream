@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.daydream.standby.AppContainer
+import com.daydream.standby.data.photos.SlidePlanner
 import com.daydream.standby.data.photos.Slideshow
 import com.daydream.standby.data.photos.SlideshowState
 import com.daydream.standby.data.settings.AppSettings
+import com.daydream.standby.data.settings.PhotoLayout
 import com.daydream.standby.data.weather.Weather
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,16 +44,26 @@ class StandByViewModel(private val container: AppContainer) : ViewModel() {
 
     private val photosVisible = MutableStateFlow(false)
 
+    /** Width/height of the photo area, rounded so tiny layout jitter doesn't restart the slideshow. */
+    private val viewportAspect = MutableStateFlow<Float?>(null)
+
     /** Runs only while the photos page is on screen, so other pages don't burn data and battery. */
     val slideshow: StateFlow<SlideshowState> = container.settings.settings
         .map { it.photoConfig }
         .distinctUntilChanged()
         .combine(photosVisible) { config, visible -> config.takeIf { visible } }
+        .combine(viewportAspect) { config, aspect -> if (config != null && aspect != null) config to aspect else null }
         .distinctUntilChanged()
-        .flatMapLatest { config ->
-            if (config == null) return@flatMapLatest emptyFlow()
+        .flatMapLatest { input ->
+            val (config, aspect) = input ?: return@flatMapLatest emptyFlow()
             val source = container.photoSource(config) ?: return@flatMapLatest flowOf<SlideshowState>(SlideshowState.NotConfigured)
-            Slideshow(source, config.intervalSeconds * 1_000L, container::preparePhoto).states()
+            Slideshow(
+                source = source,
+                intervalMillis = config.intervalSeconds * 1_000L,
+                prepare = container::preparePhoto,
+                planner = SlidePlanner(collagesEnabled = config.layout == PhotoLayout.AUTO),
+                viewportAspect = aspect,
+            ).states()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), SlideshowState.Loading)
 
@@ -80,6 +92,12 @@ class StandByViewModel(private val container: AppContainer) : ViewModel() {
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), WeatherState.Loading)
 
+    fun setViewportAspect(aspect: Float) {
+        if (aspect.isFinite() && aspect > 0f) {
+            viewportAspect.value = (Math.round(aspect * 20f) / 20f).coerceIn(MIN_VIEWPORT_ASPECT, 1f / MIN_VIEWPORT_ASPECT)
+        }
+    }
+
     fun setPhotosVisible(visible: Boolean) {
         photosVisible.value = visible
     }
@@ -94,6 +112,7 @@ class StandByViewModel(private val container: AppContainer) : ViewModel() {
 
     companion object {
         private const val STOP_TIMEOUT_MILLIS = 5_000L
+        private const val MIN_VIEWPORT_ASPECT = 0.1f
         private const val WEATHER_REFRESH_MILLIS = 30 * 60_000L
         private const val WEATHER_RETRY_MILLIS = 5 * 60_000L
 

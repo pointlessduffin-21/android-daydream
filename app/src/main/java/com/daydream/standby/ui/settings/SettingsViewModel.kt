@@ -8,6 +8,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.daydream.standby.AppContainer
 import com.daydream.standby.data.immich.ImmichAlbum
 import com.daydream.standby.data.immich.ImmichServer
+import com.daydream.standby.data.photos.LocalFolder
+import com.daydream.standby.data.photos.PhotoSourceException
 import com.daydream.standby.data.settings.AppSettings
 import com.daydream.standby.data.settings.PhotoSourceType
 import com.daydream.standby.data.settings.WeatherLocation
@@ -39,6 +41,14 @@ sealed interface AlbumsState {
     data class Failed(val message: String) : AlbumsState
 }
 
+sealed interface FoldersState {
+    data object Idle : FoldersState
+    data object Loading : FoldersState
+    data object NoPermission : FoldersState
+    data class Loaded(val folders: List<LocalFolder>) : FoldersState
+    data class Failed(val message: String) : FoldersState
+}
+
 data class LocationSearch(
     val searching: Boolean = false,
     val results: List<WeatherLocation> = emptyList(),
@@ -56,11 +66,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private val _albums = MutableStateFlow<AlbumsState>(AlbumsState.Idle)
     val albums = _albums.asStateFlow()
 
+    private val _folders = MutableStateFlow<FoldersState>(FoldersState.Idle)
+    val folders = _folders.asStateFlow()
+
     private val _locationSearch = MutableStateFlow(LocationSearch())
     val locationSearch = _locationSearch.asStateFlow()
 
     private var connectJob: Job? = null
     private var searchJob: Job? = null
+    private var foldersJob: Job? = null
 
     init {
         // Re-validate a previously saved server so the album list is ready when the screen opens.
@@ -139,6 +153,40 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         val ids = if (albumId in s.immichAlbumIds) s.immichAlbumIds - albumId else s.immichAlbumIds + albumId
         s.copy(immichAlbumIds = ids)
     }
+
+    /** Loads the folder list unless it is already loaded or loading. */
+    fun ensureFoldersLoaded() {
+        if (_folders.value is FoldersState.Loaded || _folders.value == FoldersState.Loading) return
+        loadFolders()
+    }
+
+    /** Lists device folders for the "This device" picker; [FoldersState.NoPermission] if access isn't granted. */
+    fun loadFolders() {
+        foldersJob?.cancel()
+        foldersJob = viewModelScope.launch {
+            _folders.value = FoldersState.Loading
+            _folders.value = try {
+                FoldersState.Loaded(container.localFolders())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: PhotoSourceException) {
+                FoldersState.NoPermission
+            } catch (e: Exception) {
+                FoldersState.Failed(e.message ?: "Couldn't load folders")
+            }
+        }
+    }
+
+    fun toggleFolder(bucketId: String) = update { s ->
+        val ids = if (bucketId in s.localBucketIds) s.localBucketIds - bucketId else s.localBucketIds + bucketId
+        s.copy(localBucketIds = ids)
+    }
+
+    /** Back to "all folders" (screenshots excluded). */
+    fun clearFolders() = update { it.copy(localBucketIds = emptySet()) }
+
+    /** Drops [ids] (folders that no longer exist) from the selection. */
+    fun removeFolders(ids: Set<String>) = update { it.copy(localBucketIds = it.localBucketIds - ids) }
 
     fun disconnectImmich() {
         connectJob?.cancel()

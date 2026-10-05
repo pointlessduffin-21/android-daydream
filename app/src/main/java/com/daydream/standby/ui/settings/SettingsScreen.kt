@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -46,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,19 +56,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
 import com.daydream.standby.data.photos.LocalPhotoSource
 import com.daydream.standby.data.settings.AppSettings
 import com.daydream.standby.data.settings.ClockFormat
 import com.daydream.standby.data.settings.ImmichMode
 import com.daydream.standby.data.settings.NightModeSetting
+import com.daydream.standby.data.settings.PhotoLayout
 import com.daydream.standby.data.settings.PhotoSourceType
 import com.daydream.standby.data.settings.TemperatureUnit
 import com.daydream.standby.ui.theme.StandByColors
@@ -77,7 +84,12 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val settings = viewModel.settings.collectAsStateWithLifecycle().value
     val connection by viewModel.connection.collectAsStateWithLifecycle()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
+    val folders by viewModel.folders.collectAsStateWithLifecycle()
     val search by viewModel.locationSearch.collectAsStateWithLifecycle()
+    // Screen-level (not inside a lazy item, which is disposed on scroll) so the list loads once.
+    LaunchedEffect(settings?.photoSource) {
+        if (settings?.photoSource == PhotoSourceType.LOCAL) viewModel.ensureFoldersLoaded()
+    }
 
     Scaffold(
         topBar = {
@@ -98,6 +110,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 photoSection(settings, viewModel)
+                if (settings.photoSource == PhotoSourceType.LOCAL) folderSection(settings, folders, viewModel)
                 if (settings.photoSource == PhotoSourceType.IMMICH || settings.immichServerUrl.isNotBlank()) {
                     item { ImmichSection(settings, connection, viewModel) }
                     if (settings.immichMode == ImmichMode.ALBUMS) albumSection(settings, albums, viewModel)
@@ -144,6 +157,80 @@ private fun LazyListScope.photoSection(settings: AppSettings, viewModel: Setting
         )
     }
     item { SwitchRow("Show clock over photos", settings.photoClockOverlay) { v -> viewModel.update { it.copy(photoClockOverlay = v) } } }
+    item { LabeledRow("Layout", "Collages pair up portrait photos") }
+    item {
+        Choice(
+            options = PhotoLayout.entries,
+            selected = settings.photoLayout,
+            label = { if (it == PhotoLayout.AUTO) "Collages" else "Single photo" },
+            onSelect = { layout -> viewModel.update { it.copy(photoLayout = layout) } },
+        )
+    }
+    item {
+        SwitchRow("Ken Burns effect", settings.kenBurns, "Slow pan and zoom; off when system animations are off") { v ->
+            viewModel.update { it.copy(kenBurns = v) }
+        }
+    }
+}
+
+private fun LazyListScope.folderSection(settings: AppSettings, folders: FoldersState, viewModel: SettingsViewModel) {
+    item {
+        val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (results.values.any { it }) viewModel.loadFolders()
+        }
+        val selected = settings.localBucketIds
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Folders", fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (selected.isEmpty()) "All folders (except screenshots)" else "${selected.size} selected",
+                    Modifier.weight(1f),
+                    color = StandByColors.Secondary,
+                )
+                if (selected.isNotEmpty()) TextButton(onClick = viewModel::clearFolders) { Text("Use all") }
+            }
+            when (folders) {
+                FoldersState.NoPermission -> {
+                    Text("Photo access is needed to list folders.", color = StandByColors.Secondary)
+                    OutlinedButton(onClick = { permissionLauncher.launch(LocalPhotoSource.requiredPermissions) }) { Text("Grant photo access") }
+                }
+                else -> Unit
+            }
+        }
+    }
+    when (folders) {
+        FoldersState.Idle, FoldersState.NoPermission -> Unit
+        FoldersState.Loading -> item { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp) }
+        is FoldersState.Failed -> item { Text(folders.message, color = MaterialTheme.colorScheme.error) }
+        is FoldersState.Loaded -> {
+            val missing = settings.localBucketIds - folders.folders.map { it.id }.toSet()
+            if (missing.isNotEmpty()) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${missing.size} selected folders unavailable", Modifier.weight(1f), color = StandByColors.Orange)
+                        TextButton(onClick = { viewModel.removeFolders(missing) }) { Text("Remove") }
+                    }
+                }
+            }
+            if (folders.folders.isEmpty()) item { Text("No photo folders found on this device.", color = StandByColors.Secondary) }
+            items(folders.folders, key = { it.id }) { folder ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { viewModel.toggleFolder(folder.id) }.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = folder.id in settings.localBucketIds, onCheckedChange = { viewModel.toggleFolder(folder.id) })
+                    AsyncImage(
+                        model = folder.coverUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                    )
+                    Text(folder.name, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${folder.count}", color = StandByColors.Secondary)
+                }
+            }
+        }
+    }
 }
 
 @Composable

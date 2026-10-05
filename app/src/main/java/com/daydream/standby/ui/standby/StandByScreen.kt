@@ -1,9 +1,12 @@
 package com.daydream.standby.ui.standby
 
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,16 +28,28 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.daydream.standby.data.photos.SlideshowState
@@ -42,7 +57,10 @@ import com.daydream.standby.ui.common.rememberNightMode
 import com.daydream.standby.ui.common.rememberUse24Hour
 import com.daydream.standby.ui.theme.StandByColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 
 private const val PAGE_COUNT = 3
 private const val PHOTOS_PAGE = 1
@@ -84,31 +102,69 @@ fun StandByScreen(
     }
 
     var controlsVisible by remember { mutableStateOf(false) }
+    // Remote / D-pad support: the root holds focus while controls are hidden so arrow keys page around.
+    val rootFocus = remember { FocusRequester() }
+    val settingsFocus = remember { FocusRequester() }
     LaunchedEffect(controlsVisible) {
         if (controlsVisible) {
             delay(CONTROLS_TIMEOUT_MILLIS)
             controlsVisible = false
+        } else {
+            rootFocus.requestFocus()
         }
     }
+    // The dream has no back dispatcher (DreamService itself exits on Back), so only hook it in the activity.
+    if (LocalOnBackPressedDispatcherOwner.current != null) BackHandler(controlsVisible) { controlsVisible = false }
+    val scope = rememberCoroutineScope()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    /** Up/down presses, forwarded to the vertical pagers of the visible page. */
+    val verticalNudges = remember { MutableSharedFlow<Int>(extraBufferCapacity = 1) }
 
     Box(
         Modifier
             .fillMaxSize()
             .nightFilter(night)
             .background(Color.Black)
-            .pointerInput(Unit) { detectTapGestures(onTap = { controlsVisible = !controlsVisible }) },
+            .pointerInput(Unit) { detectTapGestures(onTap = { controlsVisible = !controlsVisible }) }
+            .focusRequester(rootFocus)
+            .onKeyEvent { event ->
+                // While controls show, let keys reach the buttons / focus traversal instead.
+                if (controlsVisible) return@onKeyEvent false
+                val down = event.type == KeyEventType.KeyDown
+                when (event.key) {
+                    Key.DirectionLeft, Key.DirectionRight -> {
+                        val step = if ((event.key == Key.DirectionRight) != rtl) 1 else -1
+                        if (down) scope.launch { pager.animateScrollToPage((pager.targetPage + step).coerceIn(0, PAGE_COUNT - 1)) }
+                        true
+                    }
+                    Key.DirectionUp, Key.DirectionDown -> {
+                        if (down) verticalNudges.tryEmit(if (event.key == Key.DirectionDown) 1 else -1)
+                        true
+                    }
+                    // On key-up, so the release doesn't land on (and click) the freshly focused Settings button.
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        if (!down) controlsVisible = true
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .focusable(),
     ) {
         HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+            val nudges = remember(page) { verticalNudges.filter { pager.currentPage == page } }
             when (page) {
-                0 -> WidgetsPage(weather, use24Hour, settings.showSeconds)
+                0 -> WidgetsPage(weather, use24Hour, settings.showSeconds, nudges)
                 PHOTOS_PAGE -> PhotosPage(
                     state = if (hidePhotos) SlideshowState.Locked else slideshow,
                     intervalSeconds = settings.slideIntervalSeconds,
                     showClock = settings.photoClockOverlay,
                     use24Hour = use24Hour,
+                    kenBurns = settings.kenBurns,
+                    onViewportChanged = viewModel::setViewportAspect,
                     onOpenSettings = onOpenSettings,
                 )
-                else -> ClockPage(settings.clockFace, viewModel::onClockFaceChanged, use24Hour, settings.showSeconds)
+                else -> ClockPage(settings.clockFace, viewModel::onClockFaceChanged, use24Hour, settings.showSeconds, nudges)
             }
         }
 
@@ -132,9 +188,12 @@ fun StandByScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopEnd).padding(20.dp),
         ) {
+            val inputMode = LocalInputModeManager.current
+            // Opened from a remote: put focus on Settings. Opened by touch: leave focus alone (no focus ring).
+            LaunchedEffect(Unit) { if (inputMode.inputMode == InputMode.Keyboard) settingsFocus.requestFocus() }
             val colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = StandByColors.CardStrong.copy(alpha = 0.85f), contentColor = Color.White)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalIconButton(onClick = onOpenSettings, colors = colors) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
+                FilledTonalIconButton(onClick = onOpenSettings, colors = colors, modifier = Modifier.focusRequester(settingsFocus)) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
                 if (onExit != null) {
                     FilledTonalIconButton(onClick = onExit, colors = colors) { Icon(Icons.Rounded.Close, contentDescription = "Exit") }
                 }
